@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -e
+
+MODULE_DIR=$(readlink -f .)
+
+rm -rf upstream
+
+mkdir upstream
+pushd upstream
+git clone --depth 1 https://github.com/auth0-blog/flask-restful-apis.git
+
+cd flask-restful-apis
+git apply ../../app.patch
+
+mkdir site-packages
+pip3 install --no-cache-dir --target ./site-packages flask marshmallow
+
+popd
+
+PYTHON_VERSION=$(python3 -c 'import sys; print("%s.%s" % (sys.version_info.major,sys.version_info.minor))')
+
+echo "/lib/python${PYTHON_VERSION}/site-packages/**: ${MODULE_DIR}/upstream/flask-restful-apis/site-packages/**" > usr.manifest
+echo "/lib/python${PYTHON_VERSION}/dist-packages: ->site-packages" >> usr.manifest
+echo '/cashman/**: ${MODULE_DIR}/upstream/flask-restful-apis/cashman/**' >> usr.manifest

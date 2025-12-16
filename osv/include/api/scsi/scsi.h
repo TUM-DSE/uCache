@@ -1,0 +1,1 @@
+../../../musl/include/scsi/scsi.h

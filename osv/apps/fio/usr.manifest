@@ -1,0 +1,2 @@
+/fio: ${MODULE_DIR}/fio/fio
+/example.fio: ${MODULE_DIR}/example.fio

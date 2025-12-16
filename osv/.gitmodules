@@ -1,0 +1,26 @@
+[submodule "external/x64/acpica"]
+	path = external/x64/acpica
+	url = ../../cloudius-systems/acpica
+	ignore = dirty
+[submodule "apps"]
+	path = apps
+	url = ../../cloudius-systems/osv-apps
+	ignore = dirty
+[submodule "modules/httpserver/swagger-ui"]
+	path = modules/httpserver-html5-gui/swagger-ui
+	url = ../../cloudius-systems/swagger-ui.git
+[submodule "modules/httpserver/osv-gui"]
+	path = modules/httpserver-html5-gui/osv-gui
+	url = ../../cloudius-systems/osv-gui.git
+[submodule "musl_0.9.12"]
+	path = musl_0.9.12
+	url = https://github.com/cloudius-systems/musl
+[submodule "musl_1.1.24"]
+	path = musl_1.1.24
+	url = https://github.com/osvunikernel/musl
+[submodule "kbuild"]
+	path = kbuild
+	url = https://github.com/osvunikernel/kbuild-standalone.git
+[submodule "benchmarks"]
+	path = benchmarks
+	url = https://github.com/Meandres/osv_benchmarks.git

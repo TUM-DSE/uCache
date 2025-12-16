@@ -1,0 +1,8 @@
+[global]
+kb_base=1000    # give proper semantics to units
+thread          # use threads, not processes
+
+[job1]
+rw=read
+filename=fio    # use the fio executable itself as the test file (avoid creating
+                # the file at runtime to work on read-only fs)

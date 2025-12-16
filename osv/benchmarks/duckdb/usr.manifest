@@ -1,0 +1,4 @@
+/benchmark_runner: ${MODULE_DIR}/duckdb/build/release/benchmark/benchmark_runner
+/libduckdb.so: ${MODULE_DIR}/duckdb/build/release/src/libduckdb.so
+/duckdb: ${MODULE_DIR}/duckdb/build/release/tools/shell/libduckdb.so
+/tpch/**: ${MODULE_DIR}/tpch/**

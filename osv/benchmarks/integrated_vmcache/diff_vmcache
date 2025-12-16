@@ -1,0 +1,799 @@
+--- ../vmcache/vmcache.cpp	2025-05-07 09:06:03.929711200 +0000
++++ integrated_vmcache.cpp	2025-09-02 11:48:44.500387250 +0000
+@@ -26,13 +26,9 @@
+ #include "rte_string.hh"
+ #include <bitset>
+ 
+ #include <osv/ucache.hh>
+ #include <osv/sched.hh>
+ #include <cstring>
+ __thread uint16_t workerThreadId __attribute__ ((tls_model ("initial-exec"))) = 0;
+ __thread int32_t tpcchistorycounter __attribute__ ((tls_model ("initial-exec"))) = 0;
+@@ -62,26 +58,9 @@
+ 
+ #define die(msg) do { perror(msg); exit(EXIT_FAILURE); } while(0)
+ 
+-static const int16_t maxWorkerThreads = 128;
+-
+-uint64_t rdtsc() {
+-   uint32_t hi, lo;
+-   __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
+-   return static_cast<uint64_t>(lo)|(static_cast<uint64_t>(hi)<<32);
+-}
+-
+-// exmap helper function
+-static int exmapAction(int exmapfd, exmap_opcode op, u16 len) {
+-   struct exmap_action_params params_free = { .interface = workerThreadId, .iov_len = len, .opcode = (u16)op, };
+-   return ioctl(exmapfd, EXMAP_IOCTL_ACTION, &params_free);
+-}
+ 
+ // allocate memory using huge pages
+ void* allocHuge(size_t size) {
+@@ -160,166 +139,17 @@
+    void operator=(PageState&) = delete;
+ };
+ 
+-// open addressing hash table used for second chance replacement to keep track of currently-cached pages
+-struct ResidentPageSet {
+-   static const u64 empty = ~0ull;
+-   static const u64 tombstone = (~0ull)-1;
+-
+-   struct Entry {
+-      atomic<u64> pid;
+-   };
+-
+-   Entry* ht;
+-   u64 count;
+-   u64 mask;
+-   atomic<u64> clockPos;
+-
+-   ResidentPageSet(u64 maxCount) : count(next_pow2(maxCount * 1.5)), mask(count - 1), clockPos(0) {
+-      ht = (Entry*)allocHuge(count * sizeof(Entry));
+-      memset((void*)ht, 0xFF, count * sizeof(Entry));
+-   }
+-
+-   ~ResidentPageSet() {
+-      munmap(ht, count * sizeof(u64));
+-   }
+-
+-   u64 next_pow2(u64 x) {
+-      return 1<<(64-__builtin_clzl(x-1));
+-   }
+-
+-   u64 hash(u64 k) {
+-      const u64 m = 0xc6a4a7935bd1e995;
+-      const int r = 47;
+-      u64 h = 0x8445d61a4e774912 ^ (8*m);
+-      k *= m;
+-      k ^= k >> r;
+-      k *= m;
+-      h ^= k;
+-      h *= m;
+-      h ^= h >> r;
+-      h *= m;
+-      h ^= h >> r;
+-      return h;
+-   }
+-
+-   void insert(u64 pid) {
+-      u64 pos = hash(pid) & mask;
+-      while (true) {
+-         u64 curr = ht[pos].pid.load();
+-         assert(curr != pid);
+-         if ((curr == empty) || (curr == tombstone))
+-            if (ht[pos].pid.compare_exchange_strong(curr, pid))
+-               return;
+-
+-         pos = (pos + 1) & mask;
+-      }
+-   }
+-
+-   bool remove(u64 pid) {
+-      u64 pos = hash(pid) & mask;
+-      while (true) {
+-         u64 curr = ht[pos].pid.load();
+-         if (curr == empty)
+-            return false;
+-
+-         if (curr == pid)
+-            if (ht[pos].pid.compare_exchange_strong(curr, tombstone))
+-               return true;
+-
+-         pos = (pos + 1) & mask;
+-      }
+-   }
+-
+-   template<class Fn>
+-   void iterateClockBatch(u64 batch, Fn fn) {
+-      u64 pos, newPos;
+-      do {
+-         pos = clockPos.load();
+-         newPos = (pos+batch) % count;
+-      } while (!clockPos.compare_exchange_strong(pos, newPos));
+-
+-      for (u64 i=0; i<batch; i++) {
+-         u64 curr = ht[pos].pid.load();
+-         if ((curr != tombstone) && (curr != empty))
+-            fn(curr);
+-         pos = (pos + 1) & mask;
+-      }
+-   }
+-};
+-
+-#ifdef LINUX
+-// libaio interface used to write batches of pages
+-struct LibaioInterface {
+-   static const u64 maxIOs = 256;
+-
+-   int blockfd;
+-   Page* virtMem;
+-   io_context_t ctx;
+-   iocb cb[maxIOs];
+-   iocb* cbPtr[maxIOs];
+-   io_event events[maxIOs];
+-
+-   LibaioInterface(int blockfd, Page* virtMem) : blockfd(blockfd), virtMem(virtMem) {
+-      memset(&ctx, 0, sizeof(io_context_t));
+-      int ret = io_setup(maxIOs, &ctx);
+-      if (ret != 0) {
+-         std::cerr << "libaio io_setup error: " << ret << " ";
+-         switch (-ret) {
+-            case EAGAIN: std::cerr << "EAGAIN"; break;
+-            case EFAULT: std::cerr << "EFAULT"; break;
+-            case EINVAL: std::cerr << "EINVAL"; break;
+-            case ENOMEM: std::cerr << "ENOMEM"; break;
+-            case ENOSYS: std::cerr << "ENOSYS"; break;
+-         };
+-         exit(EXIT_FAILURE);
+-      }
+-   }
+-
+-   void writePages(const vector<PID>& pages) {
+-      assert(pages.size() < maxIOs);
+-      for (u64 i=0; i<pages.size(); i++) {
+-         PID pid = pages[i];
+-         virtMem[pid].dirty = false;
+-         cbPtr[i] = &cb[i];
+-         io_prep_pwrite(cb+i, blockfd, &virtMem[pid], pageSize, pageSize*pid);
+-      }
+-      int cnt = io_submit(ctx, pages.size(), cbPtr);
+-      assert(cnt == pages.size());
+-      cnt = io_getevents(ctx, pages.size(), pages.size(), events, nullptr);
+-      assert(cnt == pages.size());
+-   }
+-};
+-#endif // LINUX
+-
+ struct BufferManager {
+    static const u64 mb = 1024ull * 1024;
+    static const u64 gb = 1024ull * 1024 * 1024;
+    u64 virtSize;
+-   u64 physSize;
+    u64 virtCount;
+-   u64 physCount;
+-   #ifdef LINUX
+-   struct exmap_user_interface* exmapInterface[maxWorkerThreads];
+-   vector<LibaioInterface> libaioInterface;
+-   #endif //LINUX
+-   #ifdef OSV
+    ucache::VMA* ucache_vma;
+-   #endif // OSV
+-
+-   bool useExmap;
+-   int blockfd;
+-   int exmapfd;
+ 
+-   atomic<u64> physUsedCount;
+-   ResidentPageSet residentSet;
+    atomic<u64> allocCount;
+ 
+-   atomic<u64> readCount;
+-   atomic<u64> writeCount;
+-
+    Page* virtMem;
+    PageState* pageState;
+-   u64 batch;
+ 
+    PageState& getPageState(PID pid) {
+       return pageState[pid];
+@@ -333,15 +163,19 @@
+    Page* fixS(PID pid);
+    void unfixS(PID pid);
+ 
+-   bool isValidPtr(void* page) { return (page >= virtMem) && (page < (virtMem + virtSize + 16)); }
+-   PID toPID(void* page) { return reinterpret_cast<Page*>(page) - virtMem; }
+-   Page* toPtr(PID pid) { return virtMem + pid; }
++   bool isValidPtr(void* page) { 
++      bool res = ((page >= virtMem) && (page < (virtMem + virtSize + 16))); 
++      if(!res) { 
++         printf("page: %p\n", page);
++      } 
++      return res; 
++   }
++   bool isValidPID(PID pid) { return pid >= 0 && pid < virtCount; }
++   PID toPID(void* page) { ucache::assert_crash(isValidPtr(page)); return reinterpret_cast<Page*>(page) - virtMem; }
++   Page* toPtr(PID pid) { ucache::assert_crash(isValidPID(pid)); return virtMem + pid; }
+ 
+-   void ensureFreePages();
++   void handleFault(PID pid, bool newPage=false);
+    Page* allocPage();
+-   void handleFault(PID pid);
+-   void readPage(PID pid);
+-   void evict();
+ };
+ 
+ BufferManager bm;
+@@ -391,8 +225,7 @@
+             case PageState::Locked:
+                break;
+             case PageState::Evicted:
+-               
+-               if (ps.tryLockX(v)) {
++               if(ps.tryLockX(v)){
+                   bm.handleFault(pid);
+                   bm.unfixX(pid);
+                }
+@@ -473,9 +306,8 @@
+       ptr = reinterpret_cast<T*>(bm.fixX(pid));
+       ptr->dirty = true;
+    }
+-
+    explicit GuardX(GuardO<T>&& other) {
+-      assert(other.pid != moved);
++      ucache::assert_crash(other.pid != moved);
+       for (u64 repeatCounter=0; ; repeatCounter++) {
+          PageState& ps = bm.getPageState(other.pid);
+          u64 stateAndVersion = ps.stateAndVersion;
+@@ -495,7 +327,6 @@
+          yield(repeatCounter);
+       }
+    }
+-
+    // assignment operator
+    GuardX& operator=(const GuardX&) = delete;
+ 
+@@ -617,96 +448,114 @@
+    return value;
+ }
+ 
+ bool vmcache_isDirty(ucache::Buffer* buf){
+    return bm.virtMem[bm.toPID(buf->baseVirt)].dirty;
+ }
+-void vmcache_setClean(ucache::Buffer* buf){
+-   bm.virtMem[bm.toPID(buf->baseVirt)].dirty = false;
++
++void vmcache_clearDirty(ucache::Buffer* buf){}
++
++bool vmcache_canBeEvicted(ucache::Buffer* buf){
++   PID pid = bm.toPID(buf->baseVirt);
++   PageState& ps = bm.getPageState(pid);
++   u64 v = ps.stateAndVersion;
++   if(PageState::getState(v) == PageState::Marked){ // clean candidate
++      if(ps.tryLockX(v)){
++         return true;
++      }else
++         return false;
++   }
++   if(bm.virtMem[bm.toPID(buf->baseVirt)].dirty){ // has been written
++      bm.virtMem[bm.toPID(buf->baseVirt)].dirty = false;
++      if((PageState::getState(v) == 1) && ps.stateAndVersion.compare_exchange_weak(v, PageState::sameVersion(v, PageState::Locked))){
++         return true;
++      }else{
++         ps.unlockS();
++      }
++   }
++   if(PageState::getState(v) == PageState::Locked){
++      ucache::assert_crash(bm.virtMem[bm.toPID(buf->baseVirt)].dirty == false);
++      return true;
++   }
++   return false;
+ }
+ 
+-BufferManager::BufferManager() : virtSize(envOr("VIRTGB", 16)*gb), physSize(envOr("PHYSGB", 4)*gb), virtCount(virtSize / pageSize), physCount(physSize / pageSize), residentSet(physCount) {
+-   assert(virtSize>=physSize);
+-   #ifdef LINUX
+-   const char* path = getenv("BLOCK") ? getenv("BLOCK") : "/tmp/bm";
+-   blockfd = open(path, O_RDWR | O_DIRECT, S_IRWXU);
+-   if (blockfd == -1) {
+-      cerr << "cannot open BLOCK device '" << path << "'" << endl;
+-      exit(EXIT_FAILURE);
++void vmcache_evict_policy(ucache::VMA* vma, u64 nbToEvict, ucache::EvictList el){
++   while (el.size() < nbToEvict) {
++      u64 stillToFind = nbToEvict - el.size();
++      u64 id = vma->residentSet->getNextBatch(stillToFind);
++      u64 upperBound = id + stillToFind;
++      for(u64 i = 0; i < stillToFind; i++){
++         u64 index = (id+i) & vma->residentSet->mask;
++         ucache::Buffer* buf = vma->residentSet->getEntry(index);
++         if(buf == NULL){
++            continue;
++         }
++         ucache::assert_crash(vma->isValidPtr(buf->baseVirt));
++         ucache::BufferSnapshot* bs;
++         PID pid = bm.toPID(buf->baseVirt);
++         PageState& ps = bm.getPageState(pid);
++         u64 v = ps.stateAndVersion;
++         switch (PageState::getState(v)) {
++            case PageState::Marked:
++               bs = new ucache::BufferSnapshot(bm.ucache_vma->nbPages);
++               buf->updateSnapshot(bs);
++               if(bm.virtMem[pid].dirty){
++                  if(ps.tryLockS(v)){
++                     if(!vma->addEvictionCandidate(buf, bs, el)){
++                        bm.getPageState(pid).unlockS();
++                        delete bs;
++                     }
++                  }
++               }else{
++                  if(!vma->addEvictionCandidate(buf, bs, el)){
++                     delete bs;
++                  }
++               }
++               break;
++            case PageState::Unlocked:
++               ps.tryMark(v);
++               break;
++            default:
++               break; // skip
++         };
++      }
+    }
+-   #endif // LINUX
++}
++
++void vmcache_release_evicted(ucache::Buffer* buf){
++   bm.getPageState(bm.toPID(buf->baseVirt)).unlockXEvicted();
++}
++
++
++BufferManager::BufferManager(){
++   this->virtSize = envOr("VIRTGB", 16)* 1024ul * 1024 * 1024;
++   u64 physSize = envOr("PHYSGB", 4)*1024ul*1024*1024;
++   this->virtCount = virtSize / pageSize;
++   assert(virtSize>=physSize);
+    u64 virtAllocSize = virtSize + (1<<16); // we allocate 64KB extra to prevent segfaults during optimistic reads
+ 
+-   #ifdef LINUX
+-   useExmap = envOr("EXMAP", 0);
+-   if (useExmap) {
+-      exmapfd = open("/dev/exmap", O_RDWR);
+-      if (exmapfd < 0) die("open exmap");
+-
+-      struct exmap_ioctl_setup buffer;
+-      buffer.fd             = blockfd;
+-      buffer.max_interfaces = maxWorkerThreads;
+-      buffer.buffer_size    = physCount;
+-      buffer.flags          = 0;
+-      if (ioctl(exmapfd, EXMAP_IOCTL_SETUP, &buffer) < 0)
+-         die("ioctl: exmap_setup");
+-
+-      for (unsigned i=0; i<maxWorkerThreads; i++) {
+-         exmapInterface[i] = (struct exmap_user_interface *) mmap(NULL, pageSize, PROT_READ|PROT_WRITE, MAP_SHARED, exmapfd, EXMAP_OFF_INTERFACE(i));
+-         if (exmapInterface[i] == MAP_FAILED)
+-            die("setup exmapInterface");
+-      }
+-
+-      virtMem = (Page*)mmap(NULL, virtAllocSize, PROT_READ|PROT_WRITE, MAP_SHARED, exmapfd, 0);
+-   } else {
+-      virtMem = (Page*)mmap(NULL, virtAllocSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+-      madvise(virtMem, virtAllocSize, MADV_NOHUGEPAGE);
+-   }
+-   #endif // LINUX
+-   #ifdef OSV
+-   ucache::createCache(physSize, 64);
+-   virtMem = (Page*)ucache::uCacheManager->addVMA(virtAllocSize, pageSize);
+-   ucache_vma = ucache::uCacheManager->getVMA((void*)virtMem);
++   ucache::createCache(physSize, envOr("BATCH", 64));
++
++   ucache::initFile("/nvme/cache", virtAllocSize);
++   ucache_vma = ucache::uCacheManager->mmap("/nvme/cache", virtAllocSize, pageSize);
++   virtMem = (Page*)ucache_vma->start;
+    ucache_vma->callback_implems.isDirty_implem = vmcache_isDirty;
+-   ucache_vma->callback_implems.clearDirty_implem = vmcache_setClean;
+-   #endif // OSV
++   ucache_vma->callback_implems.clearDirty_implem = vmcache_clearDirty;
++   ucache_vma->callback_implems.evict_pol = vmcache_evict_policy;
++   ucache_vma->callback_implems.canBeEvicted_implem = vmcache_canBeEvicted;
++   ucache_vma->callback_implems.post_EvictingToUncached_callback_implem = vmcache_release_evicted;
+ 
+-   pageState = (PageState*)allocHuge(virtCount * sizeof(PageState));
++   pageState = (PageState*)allocHuge(this->virtCount * sizeof(PageState));
+    for (u64 i=0; i<virtCount; i++)
+       pageState[i].init();
+-   if (virtMem == MAP_FAILED)
+-      die("mmap failed");
+-
+-   #ifdef LINUX
+-   libaioInterface.reserve(maxWorkerThreads);
+-   for (unsigned i=0; i<maxWorkerThreads; i++)
+-      libaioInterface.emplace_back(LibaioInterface(blockfd, virtMem));  
+-   #endif // LINUX
+-
+-   physUsedCount = 0;
++   
+    allocCount = 1; // pid 0 reserved for meta data
+-   readCount = 0;
+-   writeCount = 0;
+-   batch = envOr("BATCH", 64);
+-
+-   #ifdef LINUX
+-   cerr << "vmcache " << "blk:" << path << " virtgb:" << virtSize/gb << " physgb:" << physSize/gb << " exmap:" << useExmap << endl;
+-   #endif // LINUX
+-   #ifdef OSV
+-   cerr << "vmcache " << " virtgb:" << virtSize/gb << " physgb:" << physSize/gb << endl;
+-   #endif // OSV
+-}
+ 
+-void BufferManager::ensureFreePages() {
+-   if (physUsedCount >= physCount*0.95)
+-      evict();
++   cerr << "vmcache " << " virtgb:" << virtSize/gb << " physgb:" << physSize/gb << endl;
+ }
+ 
+ // allocated new page and fix it
+ Page* BufferManager::allocPage() {
+-   physUsedCount++;
+-   ensureFreePages();
+    u64 pid = allocCount++;
+    if (pid >= virtCount) {
+       cerr << "VIRTGB is too low" << endl;
+@@ -715,38 +564,15 @@
+    u64 stateAndVersion = getPageState(pid).stateAndVersion;
+    bool succ = getPageState(pid).tryLockX(stateAndVersion);
+    assert(succ);
+-   residentSet.insert(pid);
+-
+-   if (useExmap) {
+-      exmapInterface[workerThreadId]->iov[0].page = pid;
+-      exmapInterface[workerThreadId]->iov[0].len = 1;
+-      while (exmapAction(exmapfd, EXMAP_OP_ALLOC, 1) < 0) {
+-         cerr << "allocPage errno: " << errno << " pid: " << pid << " workerId: " << workerThreadId << endl;
+-         ensureFreePages();
+-      }
+-   }
+-   ucache::Buffer buffer(toPtr(pid), pageSize, ucache_vma);
+-   ucache::BufferSnapshot bs(ucache_vma->nbPages);
+-   buffer.updateSnapshot(&bs);
+-   if(!buffer.UncachedToInserting(ucache::frames_alloc_phys_addr(pageSize), &bs)){
+-      printf("error alloc\n");
+-      ucache::crash_osv();
+-   }
+-   ucache::assert_crash(buffer.InsertingToCached(&bs));
+-   #endif // OSV
+-   virtMem[pid].dirty = true;
++   handleFault(pid, true);
++   virtMem[pid].dirty = false;
+    
+    return virtMem + pid;
+ }
+ 
+-void BufferManager::handleFault(PID pid) {
+-   physUsedCount++;
+-   ensureFreePages();
+-   readPage(pid);
+-   residentSet.insert(pid);
++void BufferManager::handleFault(PID pid, bool newPage) {
++   ucache::Buffer* buf = ucache_vma->getBuffer(toPtr(pid));
++   ucache::uCacheManager->handleFault(ucache_vma, buf, newPage); 
+ }
+ 
+ Page* BufferManager::fixX(PID pid) {
+@@ -762,8 +588,9 @@
+             break;
+          }
+          case PageState::Marked: case PageState::Unlocked: {
+-            if (ps.tryLockX(stateAndVersion))
++            if (ps.tryLockX(stateAndVersion)){
+                return virtMem + pid;
++            }
+             break;
+          }
+       }
+@@ -802,218 +629,6 @@
+    getPageState(pid).unlockX();
+ }
+ 
+-void BufferManager::readPage(PID pid) {
+-   #ifdef LINUX
+-   if (useExmap) {
+-      for (u64 repeatCounter=0; ; repeatCounter++) {
+-         int ret = pread(exmapfd, virtMem+pid, pageSize, workerThreadId);
+-         if (ret == pageSize) {
+-            assert(ret == pageSize);
+-            readCount++;
+-            return;
+-         }
+-         cerr << "readPage errno: " << errno << " pid: " << pid << " workerId: " << workerThreadId << endl;
+-         ensureFreePages();
+-      }
+-   } else {
+-      int ret = pread(blockfd, virtMem+pid, pageSize, pid*pageSize);
+-      assert(ret == pageSize);
+-   }
+-   #endif // LINUX
+-   #ifdef OSV
+-   ucache::Buffer buffer(toPtr(pid), pageSize, ucache_vma);
+-   ucache::BufferSnapshot bs(ucache_vma->nbPages);
+-   buffer.updateSnapshot(&bs);
+-   if(!buffer.UncachedToInserting(ucache::frames_alloc_phys_addr(pageSize), &bs)){
+-      printf("error read map\n");
+-      ucache::crash_osv();
+-   }
+-   ucache::uCacheManager->readBuffer(&buffer);
+-   ucache::assert_crash(buffer.InsertingToCached(&bs));
+-   #endif // OSV
+-   readCount++;
+-}
+-
+-void BufferManager::evict() {
+-   #ifdef LINUX
+-   vector<PID> toEvict;
+-   toEvict.reserve(batch);
+-   vector<PID> toWrite;
+-   toWrite.reserve(batch);
+-
+-   // 0. find candidates, lock dirty ones in shared mode
+-   while (toEvict.size()+toWrite.size() < batch) {
+-      residentSet.iterateClockBatch(batch, [&](PID pid) {
+-         PageState& ps = getPageState(pid);
+-         u64 v = ps.stateAndVersion;
+-         switch (PageState::getState(v)) {
+-            case PageState::Marked:
+-               if (virtMem[pid].dirty) {
+-                  if (ps.tryLockS(v))
+-                     toWrite.push_back(pid);
+-               } else {
+-                  toEvict.push_back(pid);
+-               }
+-               break;
+-            case PageState::Unlocked:
+-               ps.tryMark(v);
+-               break;
+-            default:
+-               break; // skip
+-         };
+-      });
+-   }
+-
+-   // 1. write dirty pages
+-   libaioInterface[workerThreadId].writePages(toWrite);
+-   writeCount += toWrite.size();
+-
+-   // 2. try to lock clean page candidates
+-   toEvict.erase(std::remove_if(toEvict.begin(), toEvict.end(), [&](PID pid) {
+-      PageState& ps = getPageState(pid);
+-      u64 v = ps.stateAndVersion;
+-      return (PageState::getState(v) != PageState::Marked) || !ps.tryLockX(v);
+-   }), toEvict.end());
+-
+-   // 3. try to upgrade lock for dirty page candidates
+-   for (auto& pid : toWrite) {
+-      PageState& ps = getPageState(pid);
+-      u64 v = ps.stateAndVersion;
+-      if ((PageState::getState(v) == 1) && ps.stateAndVersion.compare_exchange_weak(v, PageState::sameVersion(v, PageState::Locked)))
+-         toEvict.push_back(pid);
+-      else
+-         ps.unlockS();
+-   }
+-
+-   // 4. remove from page table
+-   if (useExmap) {
+-      for (u64 i=0; i<toEvict.size(); i++) {
+-         exmapInterface[workerThreadId]->iov[i].page = toEvict[i];
+-         exmapInterface[workerThreadId]->iov[i].len = 1;
+-      }
+-      if (exmapAction(exmapfd, EXMAP_OP_FREE, toEvict.size()) < 0)
+-         die("ioctl: EXMAP_OP_FREE");
+-   } else {
+-      for (u64& pid : toEvict)
+-         madvise(virtMem + pid, pageSize, MADV_DONTNEED);
+-   }
+-   
+-   // 5. remove from hash table and unlock
+-   for (u64& pid : toEvict) {
+-      bool succ = residentSet.remove(pid);
+-      assert(succ);
+-      getPageState(pid).unlockXEvicted();
+-   }
+-
+-   physUsedCount -= toEvict.size();
+-   #endif // LINUX
+-   #ifdef OSV 
+-   vector<ucache::Buffer*> toEvict;
+-   vector<ucache::Buffer*> toWrite;
+-   toEvict.reserve(batch);
+-   toWrite.reserve(batch);
+-   
+-   // 0. find candidates, lock dirty ones in shared mode
+-   while (toEvict.size() + toWrite.size() < batch) {
+-      residentSet.iterateClockBatch(batch, [&](PID pid) {
+-         PageState& ps = getPageState(pid);
+-         u64 v = ps.stateAndVersion;
+-         switch (PageState::getState(v)) {
+-            ucache::Buffer* buffer;
+-            ucache::BufferSnapshot* bs;
+-            case PageState::Marked:
+-               buffer = new ucache::Buffer(toPtr(pid), pageSize, ucache_vma);
+-               bs = new ucache::BufferSnapshot(ucache_vma->nbPages);
+-               buffer->updateSnapshot(bs);
+-               if (virtMem[pid].dirty) {
+-                  if (ps.tryLockS(v)){
+-                     ucache::assert_crash(buffer->CachedToEvicting(bs));
+-                     buffer->snap = bs;
+-                     toWrite.push_back(buffer);
+-                  }else{
+-                     delete bs;
+-                     delete buffer;
+-                  }
+-               }else{
+-                  buffer->snap = bs;
+-                  bs->state = ucache::BufferState::Evicting;
+-                  toEvict.push_back(buffer);
+-               }
+-               break;
+-            case PageState::Unlocked:
+-               ps.tryMark(v);
+-               break;
+-            default:
+-               break; // skip
+-         };
+-      });
+-   }
+-   
+-   // 1. write dirty pages
+-   ucache::uCacheManager->flush(toWrite);
+-   writeCount += toWrite.size();
+-
+-   // 2. try to lock clean page candidates
+-   toEvict.erase(std::remove_if(toEvict.begin(), toEvict.end(), [&](ucache::Buffer* buf) {
+-      PID pid = toPID(buf->baseVirt);
+-      PageState& ps = getPageState(pid);
+-      u64 v = ps.stateAndVersion;
+-      if((PageState::getState(v) != PageState::Marked) || !ps.tryLockX(v)){
+-         delete buf->snap;
+-         delete buf;
+-         return true;
+-      }
+-      return false;
+-   }), toEvict.end());
+-
+-   // 3. try to upgrade lock for dirty page candidates
+-   for (ucache::Buffer* buf : toWrite) {
+-      PID pid = toPID(buf->baseVirt);
+-      PageState& ps = getPageState(pid);
+-      u64 v = ps.stateAndVersion;
+-      if ((PageState::getState(v) == 1) && ps.stateAndVersion.compare_exchange_weak(v, PageState::sameVersion(v, PageState::Locked)))
+-         toEvict.push_back(buf);
+-      else{
+-         ps.unlockS();
+-         delete buf->snap;
+-         delete buf;
+-      }
+-   }
+-
+-   std::vector<void*> addressesToInvlpg;
+-   addressesToInvlpg.reserve(toEvict.size());
+-   // 4. remove from page table
+-   for(ucache::Buffer* buf: toEvict){
+-      u64 frame = buf->EvictingToUncached(buf->snap);
+-      buf->updateSnapshot(buf->snap);
+-      if(frame==0){
+-         PID pid = toPID(buf->baseVirt);
+-         getPageState(pid).unlockS();
+-         delete buf->snap;
+-         delete buf;
+-      }else{
+-         addressesToInvlpg.push_back(buf->baseVirt);
+-         ucache::frames_free_phys_addr(frame, pageSize);
+-      }
+-   }
+-   if(addressesToInvlpg.size() < mmu::invlpg_max_pages)
+-      mmu::invlpg_tlb_all(&addressesToInvlpg);
+-   else
+-      mmu::flush_tlb_all();
+-
+-   // 5. remove from hash table and unlock
+-   for (ucache::Buffer* buf : toEvict) {
+-      PID pid = toPID(buf->baseVirt);
+-      bool succ = residentSet.remove(pid);
+-      assert(succ);
+-      getPageState(pid).unlockXEvicted();
+-      delete buf->snap;
+-      delete buf;
+-   }
+-   physUsedCount -= toEvict.size();
+-   #endif // OSV
+-}
+-
+ //---------------------------------------------------------------------------
+ 
+ struct BTreeNode;
+@@ -1703,7 +1318,8 @@
+             parent = move(node);
+             node = GuardO<BTreeNode>(parent->lookupInner(key), parent);
+          }
+-
++         ucache::assert_crash(bm.isValidPID(parent.pid));
++         ucache::assert_crash(bm.isValidPID(node.pid));
+          if (node->hasSpaceFor(key.size(), payload.size())) {
+             // only lock leaf
+             GuardX<BTreeNode> nodeLocked(move(node));
+@@ -1764,19 +1380,6 @@
+ }
+ typedef u64 KeyType;
+ 
+-#ifdef LINUX
+-void handleSEGFAULT(int signo, siginfo_t* info, void* extra) {
+-   void* page = info->si_addr;
+-   if (bm.isValidPtr(page)) {
+-      cerr << "segfault restart " << bm.toPID(page) << endl;
+-      throw OLCRestartException();
+-   } else {
+-      cerr << "segfault " << page << endl;
+-      _exit(1);
+-   }
+-}
+-#endif // LINUX
+-
+ template <class Record>
+ struct vmcacheAdapter
+ {
+@@ -1906,21 +1509,7 @@
+ }
+ 
+ int main(int argc, char** argv) {
+-   if (bm.useExmap) {
+-      struct sigaction action;
+-      action.sa_flags = SA_SIGINFO;
+-      action.sa_sigaction = handleSEGFAULT;
+-      if (sigaction(SIGSEGV, &action, NULL) == -1) {
+-         perror("sigusr: sigaction");
+-         exit(1);
+-      }
+-   }
+-   unsigned nthreads = envOr("THREADS", 1);
+    unsigned nthreads = sched::cpus.size();
+    u64 n = envOr("DATASIZE", 10);
+    u64 runForSec = envOr("RUNFOR", 30);
+    bool isRndread = envOr("RNDREAD", 0);
+@@ -1928,21 +1517,18 @@
+    u64 statDiff = 1e8;
+    atomic<u64> txProgress(0);
+    atomic<bool> keepRunning(true);
+ 
+    auto statFn = [&]() {
+       cout << "ts,tx,rmb,wmb,system,threads,datasize,workload,batch" << endl;
+       u64 cnt = 0;
+       for (uint64_t i=0; i<runForSec; i++) {
+          sleep(1);
+          u64 prog = txProgress.exchange(0);
+       }
+       keepRunning = false;
+    };
+@@ -1966,8 +1552,8 @@
+       }
+       cerr << "space: " << (bm.allocCount.load()*pageSize)/(float)bm.gb << " GB " << endl;
+ 
+       thread statThread(statFn);
+ 
+       parallel_for(0, nthreads, nthreads, [&](uint64_t worker, uint64_t begin, uint64_t end) {
+@@ -1997,6 +1583,7 @@
+       });
+ 
+       statThread.join();
+       return 0;
+    }
+ 
+@@ -2032,8 +1619,8 @@
+       });
+    }
+    cerr << "space: " << (bm.allocCount.load()*pageSize)/(float)bm.gb << " GB " << endl;
+    thread statThread(statFn);
+ 
+    parallel_for(0, nthreads, nthreads, [&](uint64_t worker, uint64_t begin, uint64_t end) {
+@@ -2056,5 +1643,6 @@
+ 
+    statThread.join();
+    cerr << "space: " << (bm.allocCount.load()*pageSize)/(float)bm.gb << " GB " << endl;
+    return 0;
+ }
