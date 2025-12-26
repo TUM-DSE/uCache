@@ -39,6 +39,10 @@ To run the experiments, you should have a server with at least 64 cores and 256G
 
 The server should also include a spare NVMe SSD (capacity >=1.5TiB) that can be overwritten. The experiments presented in the paper use a PCI 5.0 SSD, the [KIOXIA CM-7](https://europe.kioxia.com/en-europe/business/ssd/enterprise-ssd/cm7-r.html).
 
+- Cloning this repository:
+As the repository contains several layer of submodules, we recommend to clone this repository using the `--recursive` flag.  
+For example, you may clone with `git clone git@github.com:TUM-DSE/uCache.git ae_ucache --recursive`
+
 ### Using your own machine
 
 #### 1. Nix
