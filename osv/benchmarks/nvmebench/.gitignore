@@ -1,5 +1,0 @@
-compile_commands.json
-.cache
-mmapbench
-mmapbench_osv.so
-mmapbench_linux

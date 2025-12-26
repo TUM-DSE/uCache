@@ -44,25 +44,15 @@
             packages =
             {
                 vmcache = (import ./nix/vmcache.nix { inherit pkgs;});
-                duckdb-newest = (import ./nix/duckdb.nix { inherit pkgs;});
                 mmapbench = (import ./nix/mmapbench.nix { inherit pkgs;}); 
-                kreon = (import ./nix/kreon.nix { inherit pkgs; }); 
-                rocksdb_bench = (import ./nix/rocksdb_bench.nix { inherit pkgs; });
 
                 specificKernelPackages = kernelPackages;
 
                 exmap = (import ./nix/exmap.nix { inherit pkgs; inherit kernelPackages; });
 
-                umap-apps = niwa-pkgs.umap-apps;
 
                 linux-image = make-disk-image {
                     config = self.nixosConfigurations.linux-image.config;
-                    inherit (pkgs) lib;
-                    inherit pkgs;
-                    format = "qcow2";
-                };
-                linux-image-newduckdb = make-disk-image {
-                    config = self.nixosConfigurations.linux-image-newduckdb.config;
                     inherit (pkgs) lib;
                     inherit pkgs;
                     format = "qcow2";
@@ -80,21 +70,13 @@
                         # tasks
                         ack
                         python3
-                        python3.pkgs.pexpect
-                        python3.pkgs.colorama
                         gdb
                         pkgs.qemu_full
                         pkgs-stable.just
 
-                        python3.pkgs.click
                         python3.pkgs.seaborn
                         python3.pkgs.pandas
-                        python3.pkgs.tqdm
-                        python3.pkgs.binary
                         pkgs.libaio
-                        pkgs.R
-                        pkgs.rPackages.tidyverse
-                        pkgs.rPackages.scales
                         niwa-pkgs.driverctl
 
                         # duckdb
@@ -114,21 +96,8 @@
                         pkgs-stable.tbb_2021_11
                         boost
 
-                        # leanstore
-                        gflags
-                        gtest
-                        libgcrypt
-                        gbenchmark
-                        postgresql
-                        fmt
-                        wiredtiger
-                        sqlite
-                        mysql80
-                        libmysqlconnectorcpp
-
                         # OSv
                         osv-boost
-                        readline
                         osv-ssl
                         gcc13
                         libgcc
@@ -138,7 +107,6 @@
                         numactl
                         dos2unix
 
-                        niwa-pkgs.umap-apps
                     ];
                     nativeBuildInputs = with pkgs; [
                         autoconf
@@ -171,7 +139,7 @@
                         ninja
                         tbb
                     ];
-                    LD_LIBRARY_PATH = "${pkgs.readline}/lib";
+                    #LD_LIBRARY_PATH = "${pkgs.readline}/lib";
                     LUA_LIB_PATH = "${pkgs.lua53Packages.lua}/lib";
                     GOMP_DIR = pkgs.libgcc.out;
                     boost_base = "${pkgs.osv-boost}";
@@ -209,23 +177,6 @@
                         inherit selfpkgs;
                         inherit kernelPackages;
                         duckdb = pkgs.duckdb;
-                        extraEnvPackages = [ pkgs.mdadm-44 ];
-                    })
-                    ./nix/nixos-generators-qcow.nix
-                ];
-            };
-            linux-image-newduckdb = nixpkgs-2311.lib.nixosSystem {
-                system = "x86_64-linux";
-                modules = [ 
-                    (import ./nix/image.nix
-                    {
-                        inherit pkgs;
-                        inherit stablepkgs; 
-                        inherit (pkgs) lib;
-                        inherit selfpkgs;
-                        inherit kernelPackages;
-                        extraEnvPackages = [ pkgs.mdadm-44 ];
-                        duckdb = selfpkgs.duckdb-newest;
                     })
                     ./nix/nixos-generators-qcow.nix
                 ];

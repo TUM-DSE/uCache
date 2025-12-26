@@ -1,0 +1,4 @@
+[submodule "osv"]
+	path = osv
+	url = git@github.com:Meandres/osv.git
+  branch = ucache_v1

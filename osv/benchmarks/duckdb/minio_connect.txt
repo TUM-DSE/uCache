@@ -1,6 +1,0 @@
-load httpfs;
-set s3_access_key_id='minioadmin';
-set s3_secret_access_key='minioadmin';
-set s3_endpoint='192.168.122.1:9000';
-set s3_url_style='path';
-set s3_use_ssl=false;

@@ -23,7 +23,7 @@ run:
   just linux_vm {{cores}} {{vm_phys_mem}} > /dev/null 2> /dev/null &
   sleep 30
 
-  total_rep=$(expr $(echo {{threads_str}} | wc -w) \* $(echo {{batch_size}} | wc -w) \* {{rep}})
+  total_rep=$(expr $(echo {{threads_str}} | wc -w) \* $(echo {{batch_size}} | wc -w) \* {{rep}} \* 2)
   cnt=0
 
   for i in `seq 1 {{rep}}`

@@ -63,10 +63,13 @@ linux-image-init:
 
 osv-image-init image="":
     #!/usr/bin/env bash
-    cd {{proot}}/osv
+    cd {{proot}}/osv/
+    if [ ! -d build/last/tools ]; then
+      ./scripts/build -j image={{image}}
+    fi
     ./scripts/build -j fs=ramfs image={{image}}
     if [[ "{{image}}" == *"duckdb"* ]]; then
-        ./scripts/build -j fs=ramfs image={{image}}
+      ./scripts/build -j fs=ramfs image={{image}}
     fi
     cp {{proot}}/osv/build/last/usr.img {{proot}}/VMs/osv_{{image}}.img
 
@@ -108,7 +111,7 @@ bind-ssd-nvme pci_id="":
         sudo driverctl set-override 0000:{{pci_id}} nvme
     fi
 
-reset_fs:
+reset_fs confirm="yes":
     #!/usr/bin/env bash
     current_driver=$(sudo driverctl list-devices | grep {{ssd_id}} | awk '{print $2 }')
     if [ "$current_driver" != "nvme" ]
@@ -116,7 +119,10 @@ reset_fs:
         sudo driverctl set-override 0000:{{ssd_id}} nvme
     fi
     nvme_path="/dev/$(ls /sys/bus/pci/devices/0000\:{{ssd_id}}/nvme)n1"
-    read -p "This will overwrite SSD {{ssd_id}} (Host block device path: $nvme_path). Are you sure you want to continue? (y/n) " -n 1 -r
+    if [ "{{confirm}}" == "yes" ]
+    then
+      read -p "This will overwrite SSD {{ssd_id}} (Host block device path: $nvme_path). Are you sure you want to continue? (y/n) " -n 1 -r
+    fi
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
       exit 1

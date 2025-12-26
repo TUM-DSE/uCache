@@ -1,5 +1,0 @@
-base: cloudius/osv-node
-
-cmdline: --cwd=/express/ /libnode.so ./examples/hello-world
-
-build: make

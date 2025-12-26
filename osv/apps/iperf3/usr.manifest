@@ -1,2 +1,0 @@
-/tools/iperf3: ${MODULE_DIR}/iperf3
-/usr/lib/libiperf.so.0: ${MODULE_DIR}/libiperf.so.0

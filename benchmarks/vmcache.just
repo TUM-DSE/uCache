@@ -30,7 +30,7 @@ run:
 
   sleep 20
 
-  just reset_fs 
+  just reset_fs no
 
   sleep 20
   

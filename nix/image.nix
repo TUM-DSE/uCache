@@ -100,8 +100,6 @@ in
     resize
     pkgs.spdk
     duckdb
-    selfpkgs.rocksdb_bench
-    selfpkgs.umap-apps
   ] ++ extraEnvPackages;
 
   boot.kernelPackages = kernelPackages;

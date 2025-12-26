@@ -1,5 +1,0 @@
-base: cloudius/osv-base
-
-cmdline: ruby.so /irb
-
-build: make ROOTFS

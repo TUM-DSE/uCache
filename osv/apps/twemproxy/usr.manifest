@@ -1,2 +1,0 @@
-/nutcracker: ${MODULE_DIR}/nutcracker
-/conf/nutcracker.yml: ${MODULE_DIR}/nutcracker.yml

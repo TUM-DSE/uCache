@@ -1,3 +1,0 @@
-{file, hosts, "/etc/hosts"}.
-{resolv_conf, "/etc/default/erlang/resolv.conf"}.
-{lookup, [file, dns]}.

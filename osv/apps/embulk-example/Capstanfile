@@ -1,3 +1,0 @@
-base: cloudius/osv-openjdk
-build: make
-cmdline: --env=HOME=/ /java.so -jar /embulk.jar run config.yml

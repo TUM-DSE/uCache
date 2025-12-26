@@ -48,24 +48,16 @@ If you choose to use your own machine and have a working Nix installation, pleas
 If you do not have Nix installed, you can either install it using the instructions [here](https://nixos.org/download/), or use our provided Docker image that sets up a working Nix environment with `just -f benchmarks/init.just enter_docker`  
 TODO: make the docker image work
 
-#### 2. System configuration
+#### 2. Benchmarks configuration
 
-TODO: add settings:
-- performance governor
-- any other parameters ?
+The different "justfiles" contain parameters of the evaluation. You do not need to modify the parameters in the individual justfiles (under the `benchmark` directory).
 
-
-#### 3. Benchmarks configuration
-
-Instruct them to look at the parameters at the top of the justfiles
-- number of repetitions
-- PCI ID of the SSD
-- other benchmark specific parameters.
-
+However, you should modify the PCI ID of the SSD you will use for the experiments. You can get this PCI ID by running `sudo lspci` and finding your device. If the SSD is currently mounted with the nvme driver, you may match the PCI ID to the current mount number by running `ls /sys/bus/pci/devices/0000:{PCI_ID}/nvme`. 
+Once you have the PCI ID, modify the `ssd_id` variable at the top of the `justfile` in the root directory (line 5).
 
 ### Using our cluster's machine
 
-In case you do not have a machine that can reproduce all experiments, we can provide access to a machine in our cluster (hostname: `irene`).
+In case you do not have a machine that can reproduce all experiments, we can provide access to a machine in our cluster (hostname: `irene`) with a PCI 5.0 SSD.
 
 **IMPORTANT**: The `/home/` directory is synchronized across our cluster using NFS. Please use the `/scratch/{your_username}/` folder instead.
 
@@ -91,15 +83,16 @@ Afterwards it re-binds the SSD to the vfio driver.
 Expected time: ~5 mins with a PCI 5.0 SSD.
 ```
 
-3. To ensure that the VMs (and the VMM) are working as intended, execute `just -f benchmarks/init.just check_vms`  
+3. To ensure that the VMs (and the VMM) are working as intended, execute `just -f benchmarks/init.just check_vms`. 
 _Explanation_:
 ```
 This recipe boots a Linux VM and runs a simple command using ssh.
-Then it executes the native-example OSv VM.
+Then it executes the mmapbench OSv VM.
 
 Expected time: ~1 min.
 ```
-Note: we use the recipe `just ssh "poweroff"` to stop the Linux VM which leads in some cases to the following error: `error: Recipe 'ssh' failed on line 19 with exit code 255`. This is not a malfunctionning of the scripts.
+Note: we use the recipe `just ssh "poweroff"` to stop the Linux VM which leads in some cases to the following error: `error: Recipe 'ssh' failed on line 19 with exit code 255`. This is not a malfunctionning of the scripts.  
+Note: If the Linux VM fails because of permissions on the key file, simply run `chmod 0600 nix/keyfile`.
 
 ## Run the benchmarks
 
@@ -136,7 +129,10 @@ Expected time: ~1 hours.
 
 ### 4. DuckDB
 
-Execute using `just -f benchmarks/duckdb.just run`  
+This experiment needs the Parquet file to be copied onto the SSD. To do so, use `just -f benchmarks/init.just copy_tpch_files [folder containing the parquet files]`.  
+If you need to generate the files, please refer to the [official DuckDB documentation](https://duckdb.org/docs/stable/core_extensions/tpch). Our experiments use the scale factor 3000. Note that the DuckDB documentation indicates that the data generator takes around 8h 30 mins and uses up to 1800GiB of memory for SF=3000. Exporting data to the Parquet requires additional processing time.  
+To simplify the reproduction of the experiments on our cluster's machine, we will link the generated files into the reviewer's folders so that they can simply reuse them.  
+The experiment can then be executed using `just -f benchmarks/duckdb.just run`  
 _Explanation_:
 ```
 This executes all queries from the TPC-H benchmark except 15 using the default DuckDB and our port of DuckDB to uCache.
@@ -146,7 +142,7 @@ Expected time: ~1 hours.
 
 ## Plots
 
-To generate the plots, execute `just -f benchmarks/plots.just draw`
+To generate the plots, execute `./benchmarks/plots/run_all.sh`
 
 _Explanation_:
 ```

@@ -1,3 +1,0 @@
-+K true
--name foo@osv.local
--config /etc/default/erlang/erlang.config

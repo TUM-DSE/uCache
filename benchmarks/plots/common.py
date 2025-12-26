@@ -21,7 +21,7 @@ mpl.rcParams["font.family"] = "libertine"
 figwidth_third = 2
 figwidth_half = 3.3
 figwidth_full = 7
-fig_height = 1.8
+fig_height = 1.6
 FONTSIZE=7
 
 palette = sns.color_palette("pastel")
@@ -33,37 +33,75 @@ sns.set_context("paper", rc={"font.size": FONTSIZE, "axes.titlesize": FONTSIZE, 
 def get_order(expe):
     match expe:
         case "micro":
-            return ['uCache', 'mmap', 'TriCache']
+            return ["mmap", "uCache"]#, 'TriCache']
+        case "big_pages":
+            return ["uCache"]
         case "io":
-            return ['uStore', 'libaio', 'SPDK']
+            return ['libaio', 'uStore', 'SPDK']
         case "kvs":
-            return ['ucache', 'mmap', 'blockcache']
+            return ['mmap', 'uCache']#, 'block']
         case "vmcache":
-            return ['ucache', 'POSIX', 'exmap']
+            return ['POSIX', 'uCache', 'exmap']
         case "duckdb":
-            return ['DuckDB', "DuckDB\nw/ prefetch", "uCache", "uCache\nw/ prefetch"]
+            return ['DuckDB', 'uCache']#['DuckDB cold', 'DuckDB warm', 'uCache cold', 'uCache warm']
 
 def darken(color):
     hue, saturation, value = rgb_to_hsv(to_rgb(color))
-    return hsv_to_rgb((hue, saturation, value * 0.6))
+    return hsv_to_rgb((hue, saturation, value * 0.9))
 
 hatch_def = [
-    "",
     "//",
-    "xx",
-    "++",
+    '',
+    'xx',
+    '*',
     "--",
+    "++",
     "||",
     "..",
     "oo",
     "\\\\",
 ]
 
-def get_hatches(data, column) -> []:
-    return hatch_def[0:max(1, data[column].unique().size)]
+def get_hatch_map(expe):
+    match expe:
+        case "micro":
+            return [hatch_def[0], hatch_def[1]]
+        case "big_pages":
+            return {"uCache": hatch_def[1]}
+        case "kvs":
+            return {"mmap": hatch_def[0], 'uCache': hatch_def[1]}
+        case "duckdb":
+            return {'uCache': hatch_def[1], "DuckDB": hatch_def[2]}
+        case "io":
+            return {"libaio": hatch_def[0], 'uStore': hatch_def[1], "SPDK": hatch_def[2]}
 
-def get_palette(data, column) -> []:
-    return palette[0:max(1,data[column].unique().size)]
+def get_palette(expe):
+    match expe:
+        case "micro":
+            return [palette[0], palette[1]]
+        case "big_pages":
+            return [palette[1]]
+        case "vmcache":
+            return [palette[0], palette[1], palette[2]]
+        case "io":
+            return [palette[0], palette[1], palette[2]]
+        case "kvs":
+            return [palette[0], palette[1], palette[2]]
+        case "duckdb":
+            return [palette[0], palette[1]]#{darken(palette[0]), palette[1], darken(palette[1])]
+
+marker_def = [
+    "o",
+    "x",
+    "D",
+    "*",
+    "+",
+]
+
+lower_better_str = "Lower is better ↓"
+higher_better_str = "Higher is better ↑"
+left_better_str = "Lower is better ←"
+right_better_str = "Higher is better →"
 
 marker_def = [
     "o",

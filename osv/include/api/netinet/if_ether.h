@@ -1,1 +1,0 @@
-../../../musl/include/netinet/if_ether.h
