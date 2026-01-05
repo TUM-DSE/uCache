@@ -68,6 +68,8 @@ In case you do not have a machine that can reproduce all experiments, we can pro
 
 ## Setup the benchmarks
 
+Once you have Nix available, enter the developpement environment by running `nix develop` from the root of this repository.
+
 1. To build the VM images, you can execute: `just -f benchmarks/init.just build_images`.  
 _Explanation_:
 ```
