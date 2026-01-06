@@ -1,7 +1,7 @@
 proot := source_dir()
 qemu_ssh_port := "2222"
 user := `whoami`
-rep := '1'
+rep := '3'
 ssd_id := '84:00.0'
 
 help:
@@ -119,13 +119,15 @@ reset_fs confirm="yes":
         sudo driverctl set-override 0000:{{ssd_id}} nvme
     fi
     nvme_path="/dev/$(ls /sys/bus/pci/devices/0000\:{{ssd_id}}/nvme)n1"
+    echo "$nvme_path"
     if [ "{{confirm}}" == "yes" ]
     then
       read -p "This will overwrite SSD {{ssd_id}} (Host block device path: $nvme_path). Are you sure you want to continue? (y/n) " -n 1 -r
-    fi
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Cancelling"
       exit 1
+    fi
     fi
     sudo mke2fs -F -t ext4 -O ^metadata_csum ${nvme_path}
     tmpdir=$(mktemp -d)
