@@ -85,7 +85,6 @@ osv_vm nb_cpu="1" size_mem_giga="4G" image="" extra_args="": (bind-ssd-vfio ssd_
     -m {{size_mem_giga}} \
     -smp {{nb_cpu}} \
     -vnc :1 \
-    -gdb tcp::1234,server,nowait \
     -device virtio-blk-pci,id=blk0,drive=hd0,scsi=off,bootindex=0 \
     -drive file={{proot}}/VMs/osv_{{image}}.img,if=none,id=hd0,cache=none,aio=native \
     -device vfio-pci,host={{ssd_id}} \

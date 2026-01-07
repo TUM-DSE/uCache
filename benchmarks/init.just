@@ -37,6 +37,6 @@ copy_tpch_files folder="":
   tmpdir=$(mktemp -d)
   sudo mount ${nvme_path} $tmpdir
   sudo mkdir -p $tmpdir/tpch
-  sudo rsync -r --info=progress2 --info=name0 {{folder}}/* $tmpdir/tpch
+  sudo rsync -rL --info=progress2 --info=name0 {{folder}}/* $tmpdir/tpch
   sudo umount $tmpdir
   sudo driverctl set-override 0000:{{ssd_id}} vfio-pci
