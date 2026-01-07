@@ -66,8 +66,7 @@ run:
     do
       echo "uCache: $cnt/$total_rep"
       let cnt++
-      echo -n "{{virtSize}},{{physSize}}," >> {{result_file}}
-      just osv_vm $t {{osv_vm_phys_mem}} mmapbench "--mount-nvme-ext /mmapbench {{virtSize}} {{physSize}} 1 4096 {{runfor}}" | grep -v system >> {{result_file}}
+      just osv_vm $t {{osv_vm_phys_mem}} mmapbench "--mount-nvme-ext /mmapbench {{virtSize}} {{physSize}} 1 4096 {{runfor}}" | grep -v system | sed "s/^/{{virtSize}},{{physSize}},/" >> {{result_file}}
       sleep 5
       just check_downgraded_link
     done
@@ -75,8 +74,7 @@ run:
     do
       echo "uCache: $cnt/$total_rep"
       let cnt++
-      echo -n "{{mem_size}},$quota," >> {{result_file}}
-      just osv_vm $t {{big_osv_vm_phys_mem}} mmapbench "--mount-nvme-ext /mmapbench {{mem_size}} $quota 1 4096 {{runfor_quota}}" | grep -v system >> {{result_file}}
+      just osv_vm $t {{big_osv_vm_phys_mem}} mmapbench "--mount-nvme-ext /mmapbench {{mem_size}} $quota 1 4096 {{runfor_quota}}" | grep -v system  | sed "s/^/{{mem_size}},$quota,/" >> {{result_file}}
       sleep 5
       just check_downgraded_link
     done
@@ -84,8 +82,7 @@ run:
     do
       echo "uCache: $cnt/$total_rep"
       let cnt++
-      echo -n "{{virtSize}},{{physSize}}," >> {{result_file}}
-      just osv_vm 64 {{osv_vm_phys_mem}} mmapbench "--mount-nvme-ext /mmapbench {{virtSize}} {{physSize}} 1 $psize {{runfor}}" | grep -v system >> {{result_file}}
+      just osv_vm 64 {{osv_vm_phys_mem}} mmapbench "--mount-nvme-ext /mmapbench {{virtSize}} {{physSize}} 1 $psize {{runfor}}" | grep -v system  | sed "s/^/{{virtSize}},{{physSize}},/" >> {{result_file}}
       sleep 5
       just check_downgraded_link
     done

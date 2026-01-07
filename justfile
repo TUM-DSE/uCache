@@ -1,7 +1,7 @@
 proot := source_dir()
 qemu_ssh_port := "2222"
 user := `whoami`
-rep := '3'
+rep := '1'
 ssd_id := 'c3:00.0'
 
 help:
@@ -18,12 +18,8 @@ ssh COMMAND="":
     -p {{qemu_ssh_port}} \
     root@localhost -- "{{COMMAND}}"
 
-linux_vm nb_cpu="1" size_mem="16384": (bind-ssd-vfio ssd_id)
+linux_vm nb_cpu="1" size_mem="16384": (bind-ssd-vfio ssd_id) check_downgraded_link
     #!/usr/bin/env bash
-    output=$( sudo lspci -vv | grep -A 60 "{{ssd_id}}"  | grep "LnkSta:" )
-    if [[ "$my_variable" == *"downgraded"* ]]; then
-        echo "Downgraded " $output
-    fi
     let "taskset_cores = {{nb_cpu}}-1"
     sudo taskset -c 0-$taskset_cores qemu-system-x86_64 \
         -cpu host \
@@ -73,12 +69,8 @@ osv-image-init image="":
     fi
     cp {{proot}}/osv/build/last/usr.img {{proot}}/VMs/osv_{{image}}.img
 
-osv_vm nb_cpu="1" size_mem_giga="4G" image="" extra_args="": (bind-ssd-vfio ssd_id)
+osv_vm nb_cpu="1" size_mem_giga="4G" image="" extra_args="": (bind-ssd-vfio ssd_id) check_downgraded_link
     #!/usr/bin/env bash
-    output=$( sudo lspci -vv | grep -A 60 "{{ssd_id}}"  | grep "LnkSta:" )
-    if [[ "$my_variable" == *"downgraded"* ]]; then
-        echo "Downgraded " $output
-    fi
     {{proot}}/osv/scripts/imgedit.py setargs {{proot}}/VMs/osv_{{image}}.img "{{extra_args}}"
     let "taskset_cores = {{nb_cpu}}-1"
     sudo taskset -c 0-$taskset_cores qemu-system-x86_64 \

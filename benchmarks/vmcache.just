@@ -41,4 +41,4 @@ run:
     just check_downgraded_link
   done
 
-  #sed -i -e '/^[0-9]/!d' -e '2,${/^ts/d}' filename
+  sed -i -e '/^[0-9]/!d' -e '1its,tx,rmb,wmb,system,threads,datasize,workload,batch' {{result_file}}
