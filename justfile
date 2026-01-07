@@ -2,7 +2,7 @@ proot := source_dir()
 qemu_ssh_port := "2222"
 user := `whoami`
 rep := '3'
-ssd_id := '84:00.0'
+ssd_id := 'c3:00.0'
 
 help:
     just --list
@@ -139,7 +139,39 @@ reset_fs confirm="yes":
 
 check_downgraded_link:
     #!/usr/bin/env bash
-    output=$( sudo lspci -vv | grep -A 60 "{{ssd_id}}"  | grep "LnkSta:" )
-    if [[ "$my_variable" == *"downgraded"* ]]; then
-        echo "Downgraded " $output
+    output=$(cat /sys/bus/pci/devices/0000\:{{ssd_id}}/current_link_speed | cut -d' ' -f1)
+    if [[ "$output" == "2.5" ]]; then
+      # Taken from https://alexforencich.com/wiki/en/pcie/set-speed
+      dev="{{ssd_id}}"
+      speed="32"
+      if [ ! -e "/sys/bus/pci/devices/$dev" ]; then
+        dev="0000:$dev"
+      fi
+      if [ ! -e "/sys/bus/pci/devices/$dev" ]; then
+        echo "Error: device $dev not found"
+        exit 1
+      fi
+      pciec=$(sudo setpci -s $dev CAP_EXP+02.W)
+      pt=$((("0x$pciec" & 0xF0) >> 4))
+      port=$(basename $(dirname $(readlink "/sys/bus/pci/devices/$dev")))
+      if (($pt == 0)) || (($pt == 1)) || (($pt == 5)); then
+        dev=$port
+      fi
+      lc=$(sudo setpci -s $dev CAP_EXP+0c.L)
+      ls=$(sudo setpci -s $dev CAP_EXP+12.W)
+      max_speed=$(("0x$lc" & 0xF))
+      if [ -z "$speed" ]; then
+        speed=$max_speed
+      fi
+      if (($speed > $max_speed)); then
+        speed=$max_speed
+      fi
+      lc2=$(sudo setpci -s $dev CAP_EXP+30.L)
+      lc2n=$(printf "%08x" $((("0x$lc2" & 0xFFFFFFF0) | $speed)))
+      sudo setpci -s $dev CAP_EXP+30.L=$lc2n
+      lc=$(sudo setpci -s $dev CAP_EXP+10.L)
+      lcn=$(printf "%08x" $(("0x$lc" | 0x20)))
+      sudo setpci -s $dev CAP_EXP+10.L=$lcn
+      sleep 0.1
+      ls=$(sudo setpci -s $dev CAP_EXP+12.W)
     fi
