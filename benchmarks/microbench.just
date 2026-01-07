@@ -92,4 +92,4 @@ run:
   done
   
   dos2unix {{result_file}}
-  sed -i '/system\|mmap\|ucache/!d' {{result_file}}
+  sed -i '/system\|mmap,\|ucache/!d' {{result_file}}
