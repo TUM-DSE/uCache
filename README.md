@@ -136,7 +136,7 @@ Expected time: ~1 hours.
 ### 4. DuckDB
 
 This experiment needs the Parquet file to be copied onto the SSD. To do so, use `just -f benchmarks/init.just copy_tpch_files [folder containing the parquet files]`.  
-If you need to generate the files, please refer to the [official DuckDB documentation](https://duckdb.org/docs/stable/core_extensions/tpch). Our experiments use the scale factor 3000. Note that the DuckDB documentation indicates that the data generator takes around 8h 30 mins and uses up to 1800GiB of memory for SF=3000. Exporting data to the Parquet requires additional processing time.  
+If you need to generate the files, please refer to the [official DuckDB documentation](https://duckdb.org/docs/stable/core_extensions/tpch). Our experiments use the scale factor 300. Note that the DuckDB documentation indicates that the data generator takes around 51 mins and uses up to 200GiB of memory for SF=300. Exporting data to the Parquet requires additional processing time.  
 To simplify the reproduction of the experiments on our cluster's machine, we will link the generated files into the reviewer's folders so that they can simply reuse them.  
 The experiment can then be executed using `just -f benchmarks/duckdb.just run`  
 _Explanation_:
