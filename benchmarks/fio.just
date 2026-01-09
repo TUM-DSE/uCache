@@ -18,6 +18,7 @@ run:
   thread_map[4]="0xf"
   thread_map[32]="0xffffffff"
   thread_map[64]="0xffffffffffffffff"
+  just reset_fs no
   echo "system,workload,ioSize,threads,time,batchSize,bandwidth" > {{result_file}}
   
   just linux_vm {{cores}} {{vm_phys_mem}} > /dev/null 2> /dev/null &
